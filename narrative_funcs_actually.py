@@ -189,6 +189,9 @@ def download_data(x, verbose=False):
 
 
 def find_adj(actors: list, sent):
+    """ Функция дополняет актора дополнительным словом (прилогательным)
+    :param actors - список акторов;
+    :param sent - текущее предложение """
     actor_tokens = []
     used_tokens = []
     actor_tokens_with_adj = []
@@ -314,7 +317,6 @@ def formalize_text(x: list, doc_paths: list):
             sent_count += 1
             sent_for_analysis = sent  # Предложение для анализа
             # Идея -- использовать данный цикл для нахождения отправных слов (индексов)
-            # Списки для ключей и айди слов, текста слов
 
             # Словарь для записи триады нарратива
             triad = {'speakers': [], 'actors': [], 'actions': [], 'objects': [],

@@ -114,10 +114,42 @@ for idx, row in data[:620].iterrows():
     # net.add_edge(tonality, LOCs, width=1)
     # net.add_edge(tonality, ORGs, width=1)
 
+
+
 # Сохранение графа
 net.save_graph('graph.html')
 ##
-print(node_counts['[есть]'])
 
+import networkx as nx
+from pyvis.network import Network
+import pandas as pd
 
+# --- читаем данные ---
+data = pd.read_excel(r"E:\Downloads\Триады_нарративов_new2.xlsx")
+
+G = nx.DiGraph()  # направленный граф
+
+for idx, row in data[:620].iterrows():
+    speakers = str(row['speakers'])
+    sentences = str(row['sentence'])
+    actors = str(row['actors'])
+    actions = str(row['actions'])
+    objects = str(row['objects'])
+
+    # добавляем узлы с типом (атрибут)
+    for node, ntype in zip(
+        [speakers, sentences, actors, actions, objects],
+        ['speakers', 'sentence', 'actor', 'action', 'object']
+    ):
+        if node not in G:
+            G.add_node(node, type=ntype)
+
+    # добавляем рёбра
+    G.add_edge(speakers, sentences)
+    G.add_edge(sentences, actors)
+    G.add_edge(actors, actions)
+    G.add_edge(actions, objects)
+
+# --- сохраняем в GEXF ---
+nx.write_gexf(G, "graph_for_gephi.gexf")
 ##
