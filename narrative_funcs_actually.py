@@ -1,3 +1,4 @@
+# -*- coding: cp1251 -*-
 ##
 import os
 import re
@@ -28,7 +29,7 @@ def get_previous_part(filename: str) -> str:
     Возвращает имя файла с предыдущей частью.
     Если номер части = 1, то возвращает None.
     """
-    filename = filename.replace(r'E:\Грант\Обучение ГосДума\Неолиберализм', '')
+    filename = filename.replace(r'E:\Грант\Обучение ГосДума\Дирижизм', '')
     # print(filename)
     # Ищем в конце шаблон "_частьN"
     name, dirty_number = filename.split('часть')
@@ -174,11 +175,16 @@ def files_in_directory(path1, select):
     return all_txt
 
 
-def download_data(x):
+def download_data(x, verbose=False):
     data = []
-    for file in tqdm(x, desc="Загрузка данных"):
-        with open(file, encoding='cp1251') as f:
-            data.append(f.read())
+    if verbose:
+        for file in tqdm(x, desc="Загрузка данных"):
+            with open(file, encoding='cp1251') as f:
+                data.append(f.read())
+    else:
+        for file in x:
+            with open(file, encoding='cp1251') as f:
+                data.append(f.read())
     return data
 
 
@@ -459,9 +465,10 @@ def formalize_text(x: list, doc_paths: list):
     return triads
 
 
-files = files_in_directory(r'E:\Грант\Обучение ГосДума\Неолиберализм',
+files = files_in_directory(r'E:\Грант\Обучение ГосДума\Дирижизм',
                            '')
-texts1 = download_data(files)
+texts1 = download_data(files, verbose=True)
+print(files[20:30])
 results = formalize_text(texts1[20:30], files[20:30])
 
 speakers_ind, actors_ind, actions_ind, objects_ind, action_descs, mode, ton, PER_ind, LOC_ind, ORG_ind, sent_ind = [], [], [], [], [], [], [], [], [], [], []
@@ -488,7 +495,6 @@ dataframe = pd.DataFrame({
     'actors': all_params[1],
     'actions': all_params[2],
     'objects': all_params[3],
-    # 'action descriptions': all_params[3],
     'modality': all_params[4],
     'tonality': all_params[5],
     'PER': all_params[6],
