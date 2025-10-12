@@ -3,7 +3,6 @@
 import os
 import re
 from tqdm import tqdm
-import random
 import pandas as pd
 from natasha import MorphVocab
 from natasha import NewsNERTagger
@@ -25,11 +24,14 @@ model = AutoModelForSequenceClassification.from_pretrained(MODEL)
 
 
 def get_previous_part(filename: str) -> str:
+    global path_to_files
     """
     Возвращает имя файла с предыдущей частью.
     Если номер части = 1, то возвращает None.
+    :param filename: Путь к обрабатываемому файлу;
+    :return Строка, содержащая путь к файлу-предку
     """
-    filename = filename.replace(r'E:\Грант\Обучение ГосДума\Дирижизм', '')
+    filename = filename.replace(path_to_files, '')
     # print(filename)
     # Ищем в конце шаблон "_частьN"
     name, dirty_number = filename.split('часть')
@@ -49,26 +51,31 @@ def get_previous_part(filename: str) -> str:
     return f"{name[1:]}часть{new_number}.txt"
 
 
-def extract_speaker(text: str, path: str, find_in_previous_doc=False):
+def extract_speaker(text: str, path: str, path_to_all_docs: str, find_in_previous_doc=False):
     """
     Извлекает ФИО в формате 'Фамилия И. О.' из текста.
-    Возвращает список найденных совпадений (может быть несколько).
+    :param text - строка с текстом документа;
+    :param path - полный путь к документу;
+    :param path_to_all_docs - путь к директории с документами-предками (всеми документами);
+    :param find_in_previous_doc - параметр для активации поиска спикера в документах-предках;
+    :return Строка с ФИО спикера
     """
     # Регулярка ищет:
-    # - слово с заглавной буквы (Фамилия)
-    # - пробел
-    # - И. О. (инициалы с точками)
+    # - слово с заглавной буквы (Фамилия) # - пробел # - И. О. (инициалы с точками)
+    # Ветка для речей
+    if 'Непроизнесенные выступления' in path:
+        pass
+    # Ветка для стенограмм
     if find_in_previous_doc:  # Ветка для поиска спикера в предыдущем документе
         speaker_is_founded = False
         prom_path = path  # Путь для хранения предыдущих документов в цикле
         while not speaker_is_founded:
             previous_doc = get_previous_part(prom_path)
-            prom_path = previous_doc
             if previous_doc is None:
                 return ''
             else:
                 # print(previous_doc)
-                old_files = files_in_directory(r'E:\Грант\Стенограммы структура оригиналы', previous_doc[1:])
+                old_files = files_in_directory(path_to_all_docs, previous_doc[1:])
                 # print(old_files[0])
                 old_texts = download_data(old_files)
                 pattern = r'[А-ЯЁ][а-яё]+(?:\s[А-Я]\.\s?[А-Я]\.)'
@@ -99,6 +106,11 @@ def extract_speaker(text: str, path: str, find_in_previous_doc=False):
 
 
 def analyze_tonality(text):
+    """
+    Функция для получения тональности предложения
+    :param text: Текущее предложение
+    :return: Строка с названием тональности
+    """
     global tokenizer, model
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
     with torch.no_grad():
@@ -111,6 +123,11 @@ def analyze_tonality(text):
 
 
 def analyze_modality(text):
+    """
+    Функция для получения тональности предложения
+    :param text: Текущее предложение
+    :return: Строка с названием тональности
+    """
     modality_dict = {
         "Постановка вопроса": ['?'],
         "Обязанность": [
@@ -164,6 +181,11 @@ def analyze_modality(text):
 
 
 def files_in_directory(path1, select):
+    """
+    :param path1: Путь к директории
+    :param select:  Подстрока для получения конкретных имён файлов;
+    :return: Список абсолютных путей
+    """
     all_txt = []
     for root, dirs, files1 in os.walk(path1):
         for file in files1:
@@ -176,6 +198,11 @@ def files_in_directory(path1, select):
 
 
 def download_data(x, verbose=False):
+    """
+    :param x: Список путей к файлам;
+    :param verbose: Параметр отображения;
+    :return: Возвращает список строк (тексты стенограмм);
+    """
     data = []
     if verbose:
         for file in tqdm(x, desc="Загрузка данных"):
@@ -189,9 +216,11 @@ def download_data(x, verbose=False):
 
 
 def find_adj(actors: list, sent):
-    """ Функция дополняет актора дополнительным словом (прилогательным)
+    """ Функция дополняет актора дополнительным словом (прилагательным)
+    нужно дописать, работает некорректно;
     :param actors - список акторов;
     :param sent - текущее предложение """
+
     actor_tokens = []
     used_tokens = []
     actor_tokens_with_adj = []
@@ -292,7 +321,13 @@ def add_context(actors, actions, sent):
     return objects, action_descriptions, modality, tonality, actors_with_adj
 
 
-def formalize_text(x: list, doc_paths: list):
+def formalize_text(x: list, doc_paths: list, path_to_all_docs: str):
+    """
+    Функция, которая ищет нарративные признаки
+    :param x: список строк с текстом;
+    :param doc_paths: список полных путей к документам;
+    :param path_to_all_docs: строка, содержащая путь к директории с документами-предками (всеми документами)
+    """
     triads = []
     doc_count = -1
     for single_text in tqdm(x, 'Обработка текстов'):
@@ -359,16 +394,16 @@ def formalize_text(x: list, doc_paths: list):
 
             # Ищем спикера, если нет в первом предложении, то открываем предыдущую стенограмму
             if sent_count == 1:
-                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count])
+                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs)
                 # print(current_speaker1)
                 if current_speaker1 == '':
                     # print(current_speaker1)
                     current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count],
-                                                       find_in_previous_doc=True)
+                                                       path_to_all_docs, find_in_previous_doc=True)
                     # print(current_speaker1)
             else:
 
-                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count])
+                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs)
             # Проверяем, нашли ли мы действительно нового спикера
             if current_speaker1 != '':
                 current_speaker = current_speaker1
@@ -467,12 +502,13 @@ def formalize_text(x: list, doc_paths: list):
     return triads
 
 
-files = files_in_directory(r'E:\Грант\Обучение ГосДума\Дирижизм',
-                           '')
-texts1 = download_data(files, verbose=True)
-print(files[20:30])
-results = formalize_text(texts1[20:30], files[20:30])
+path_to_files = r'E:\Грант\Обучение ГосДума\Дирижизм'  # Путь к обрабатываемым файлам
+path_to_all_files = r'E:\Грант\Стенограммы структура оригиналы'  # Путь к файлам-предкам (или всем файлам)
+files = files_in_directory(path_to_files, '')  # Получаем все пути к файлам
+texts1 = download_data(files, verbose=True)  # Загружаем тексты
+results = formalize_text(texts1[:1], files[:1], path_to_all_files)  # Результаты обработки
 
+# Запись в файл
 speakers_ind, actors_ind, actions_ind, objects_ind, action_descs, mode, ton, PER_ind, LOC_ind, ORG_ind, sent_ind = [], [], [], [], [], [], [], [], [], [], []
 all_params = [speakers_ind, actors_ind, actions_ind, objects_ind, mode, ton, PER_ind, LOC_ind, ORG_ind,
               sent_ind]  # action_descs
