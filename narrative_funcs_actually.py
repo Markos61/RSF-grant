@@ -217,7 +217,7 @@ def download_data(x, verbose=False):
 
 def find_adj(actors: list, sent):
     """ Функция дополняет актора дополнительным словом (прилагательным)
-    нужно дописать, работает некорректно;
+    нужно дописать;
     :param actors - список акторов;
     :param sent - текущее предложение """
 
@@ -314,10 +314,9 @@ def add_context(actors, actions, sent):
     for obj_token in objects_tokens:
         objects.append(obj_token.text)
 
-    # добавление прилагательного к актору
-    # actors_with_adj = find_adj(actors, sent)
+    # добавление прилагательного (доп. слова) к актору
+    actors_with_adj = find_adj(actors, sent)
 
-    actors_with_adj = actors.copy()
     return objects, action_descriptions, modality, tonality, actors_with_adj
 
 
@@ -506,7 +505,7 @@ path_to_files = r'E:\Грант\Обучение ГосДума\Дирижизм'  # Путь к обрабатываемым ф
 path_to_all_files = r'E:\Грант\Стенограммы структура оригиналы'  # Путь к файлам-предкам (или всем файлам)
 files = files_in_directory(path_to_files, '')  # Получаем все пути к файлам
 texts1 = download_data(files, verbose=True)  # Загружаем тексты
-results = formalize_text(texts1[:1], files[:1], path_to_all_files)  # Результаты обработки
+results = formalize_text(texts1[:10], files[:10], path_to_all_files)  # Результаты обработки
 
 # Запись в файл
 speakers_ind, actors_ind, actions_ind, objects_ind, action_descs, mode, ton, PER_ind, LOC_ind, ORG_ind, sent_ind = [], [], [], [], [], [], [], [], [], [], []
