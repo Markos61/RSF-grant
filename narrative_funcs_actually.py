@@ -16,6 +16,10 @@ from natasha import (
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 from torch.nn.functional import softmax
+from torch.utils.data import DataLoader
+import sys
+sys.path.append(r"E:\PycharmProjects\PARsing\grant")
+from custom_dataloading import NarrativeDataset
 
 MODEL = "cointegrated/rubert-tiny-sentiment-balanced"
 # MODEL = "mxlcw/rubert-tiny2-russian-financial-sentiment"
@@ -233,11 +237,50 @@ def find_adj(actors: list, sent):
                 used_tokens.append(token.text)
                 continue
 
+    dop_tokens, dop_tokens1, dop_tokens2, dop_tokens3 = [], [], [], []
     for token in sent.tokens:
         for actor_token in actor_tokens:
             if (token.head_id == actor_token.id and token.pos == "ADJ") or (
-                    token.head_id == actor_token.id and token.pos == "NUM"):
-                actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
+                    token.head_id == actor_token.id and token.pos == "NUM") or (
+                    token.head_id == actor_token.id and token.pos == "NOUN"):
+                if token not in actor_tokens_with_adj:
+                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
+                    dop_tokens.append(token)
+
+    for token in sent.tokens:
+        for actor_token in dop_tokens:
+            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
+                    token.head_id == actor_token.id and token.pos == "NUM") or (
+                    token.head_id == actor_token.id and token.pos == "NOUN"):
+                if token not in actor_tokens_with_adj:
+                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
+                    dop_tokens1.append(token)
+
+    for token in sent.tokens:
+        for actor_token in dop_tokens1:
+            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
+                    token.head_id == actor_token.id and token.pos == "NUM") or (
+                    token.head_id == actor_token.id and token.pos == "NOUN"):
+                if token not in actor_tokens_with_adj:
+                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
+                    dop_tokens2.append(token)
+
+    for token in sent.tokens:
+        for actor_token in dop_tokens2:
+            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
+                    token.head_id == actor_token.id and token.pos == "NUM") or (
+                    token.head_id == actor_token.id and token.pos == "NOUN"):
+                if token not in actor_tokens_with_adj:
+                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
+                    dop_tokens3.append(token)
+
+    for token in sent.tokens:
+        for actor_token in dop_tokens3:
+            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
+                    token.head_id == actor_token.id and token.pos == "NUM") or (
+                    token.head_id == actor_token.id and token.pos == "NOUN"):
+                if token not in actor_tokens_with_adj:
+                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
 
     actor_tokens_with_adj.sort(key=lambda t: tuple(map(int, t.id.split('_'))))
     for act_token in actor_tokens_with_adj:
@@ -314,7 +357,7 @@ def add_context(actors, actions, sent):
     for obj_token in objects_tokens:
         objects.append(obj_token.text)
 
-    # добавление прилагательного (доп. слова) к актору
+    # Добавление прилагательного (доп. слова) к актору
     actors_with_adj = find_adj(actors, sent)
 
     return objects, action_descriptions, modality, tonality, actors_with_adj
@@ -329,7 +372,7 @@ def formalize_text(x: list, doc_paths: list, path_to_all_docs: str):
     """
     triads = []
     doc_count = -1
-    for single_text in tqdm(x, 'Обработка текстов'):
+    for index, single_text in enumerate(x):
         doc_count += 1
         segmenter = Segmenter()
         emb = NewsEmbedding()
@@ -504,8 +547,14 @@ def formalize_text(x: list, doc_paths: list, path_to_all_docs: str):
 path_to_files = r'E:\Грант\Обучение ГосДума\Дирижизм'  # Путь к обрабатываемым файлам
 path_to_all_files = r'E:\Грант\Стенограммы структура оригиналы'  # Путь к файлам-предкам (или всем файлам)
 files = files_in_directory(path_to_files, '')  # Получаем все пути к файлам
-texts1 = download_data(files, verbose=True)  # Загружаем тексты
-results = formalize_text(texts1[:10], files[:10], path_to_all_files)  # Результаты обработки
+
+dataset = NarrativeDataset(files[:10])  # Создание датасета
+dataloader = DataLoader(dataset, shuffle=True, batch_size=5)  # Создание даталодера
+# Запись результатов в список results
+results = []
+for doc_texts, doc_paths in tqdm(dataloader, 'Формализация текстов'):
+    res = formalize_text(doc_texts, doc_paths, path_to_all_files)
+    results += res
 
 # Запись в файл
 speakers_ind, actors_ind, actions_ind, objects_ind, action_descs, mode, ton, PER_ind, LOC_ind, ORG_ind, sent_ind = [], [], [], [], [], [], [], [], [], [], []
