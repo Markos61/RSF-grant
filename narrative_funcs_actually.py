@@ -1,9 +1,9 @@
 # -*- coding: cp1251 -*-
 ##
 import os
-import re
+from datetime import datetime
+from multiprocessing import Pool
 from tqdm import tqdm
-import pandas as pd
 from natasha import MorphVocab
 from natasha import NewsNERTagger
 from natasha import (
@@ -14,358 +14,24 @@ from natasha import (
     Doc
 )
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-import torch
-from torch.nn.functional import softmax
 from torch.utils.data import DataLoader
 import sys
 sys.path.append(r"E:\PycharmProjects\PARsing\grant")
 from custom_dataloading import NarrativeDataset
-
-MODEL = "cointegrated/rubert-tiny-sentiment-balanced"
-# MODEL = "mxlcw/rubert-tiny2-russian-financial-sentiment"
-tokenizer = AutoTokenizer.from_pretrained(MODEL)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL)
-
-
-def get_previous_part(filename: str) -> str:
-    global path_to_files
-    """
-    Возвращает имя файла с предыдущей частью.
-    Если номер части = 1, то возвращает None.
-    :param filename: Путь к обрабатываемому файлу;
-    :return Строка, содержащая путь к файлу-предку
-    """
-    filename = filename.replace(path_to_files, '')
-    # print(filename)
-    # Ищем в конце шаблон "_частьN"
-    name, dirty_number = filename.split('часть')
-    number, trash = dirty_number.split('.')
-    try:
-        new_number = int(number) - 1
-    except ValueError:
-        try:
-            er = number.split(' ')
-            new_number = int(er[0]) - 1
-        except ValueError:
-            return None
-
-    if new_number <= 1:
-        return None  # предыдущей части нет
-    # print(f"{name[1:]}часть{new_number}.txt")
-    return f"{name[1:]}часть{new_number}.txt"
+from writer_func import writer
+from speaker_funcs import extract_speaker
+from find_files import files_in_directory
+from add_content_func import add_context
 
 
-def extract_speaker(text: str, path: str, path_to_all_docs: str, find_in_previous_doc=False):
-    """
-    Извлекает ФИО в формате 'Фамилия И. О.' из текста.
-    :param text - строка с текстом документа;
-    :param path - полный путь к документу;
-    :param path_to_all_docs - путь к директории с документами-предками (всеми документами);
-    :param find_in_previous_doc - параметр для активации поиска спикера в документах-предках;
-    :return Строка с ФИО спикера
-    """
-    # Регулярка ищет:
-    # - слово с заглавной буквы (Фамилия) # - пробел # - И. О. (инициалы с точками)
-    # Ветка для речей
-    if 'Непроизнесенные выступления' in path:
-        pass
-    # Ветка для стенограмм
-    if find_in_previous_doc:  # Ветка для поиска спикера в предыдущем документе
-        speaker_is_founded = False
-        prom_path = path  # Путь для хранения предыдущих документов в цикле
-        while not speaker_is_founded:
-            previous_doc = get_previous_part(prom_path)
-            if previous_doc is None:
-                return ''
-            else:
-                # print(previous_doc)
-                old_files = files_in_directory(path_to_all_docs, previous_doc[1:])
-                # print(old_files[0])
-                old_texts = download_data(old_files)
-                pattern = r'[А-ЯЁ][а-яё]+(?:\s[А-Я]\.\s?[А-Я]\.)'
-
-                matches = re.findall(pattern, old_texts[0])
-                # print(matches)
-                if matches:
-                    speaker_is_founded = True
-                    return matches[len(matches) - 1]
-                else:
-                    if 'Председательствующий' in old_texts[0]:
-                        return 'Председательствующий'
-                    else:
-                        return ''
-
-    else:
-        # Ветка для поиска спикера в данном предложении, если есть текущий спикер
-        pattern = r'[А-ЯЁ][а-яё]+(?:\s[А-Я]\.\s?[А-Я]\.)'
-
-        matches = re.findall(pattern, text)
-        if matches:
-            return matches[0]
-        else:
-            if 'Председательствующий' in text:
-                return 'Председательствующий'
-            else:
-                return ''
-
-
-def analyze_tonality(text):
-    """
-    Функция для получения тональности предложения
-    :param text: Текущее предложение
-    :return: Строка с названием тональности
-    """
-    global tokenizer, model
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
-    with torch.no_grad():
-        logits = model(**inputs).logits
-    probs = softmax(logits, dim=1).numpy()[0]
-    labels = ['negative', 'neutral', 'positive']
-    sentiment_result = dict(zip(labels, probs.tolist()))
-    predicted_sentiment = max(sentiment_result, key=sentiment_result.get)
-    return predicted_sentiment
-
-
-def analyze_modality(text):
-    """
-    Функция для получения тональности предложения
-    :param text: Текущее предложение
-    :return: Строка с названием тональности
-    """
-    modality_dict = {
-        "Постановка вопроса": ['?'],
-        "Обязанность": [
-            "нужно", "надо", "следует", "обязан", "обязаны", "должен", "должны", "должна", 'должно',
-            "требуется", "необходимо", "надлежит", "полагается", "предписано",
-            "следует рассматривать", "обязательство", "неотъемлемо", "следует учитывать",
-            "необходимо учитывать", "обязано", "обязательность", "непременно",
-            "обязаны соблюдать", "обязаны выполнять", "требуется выполнение",
-            "должен быть", "должно быть", "следует выполнять", "необходимо выполнить",
-            "надлежит сделать", "следует сделать", "обязано выполнить", "обязано сделать",
-            "должно соблюдаться", "следует соблюдать", "обязаны соблюдать", 'будем', 'будет'
-        ],
-        "Возможность": [
-            "можно", "возможно", "способен", "способны", "имеет возможность",
-            "есть шанс", "допускается", "не исключено", "позволено", "разрешается",
-            "вероятно", "скорее всего", "вряд ли", "может быть", "имеется возможность",
-            "есть вероятность", "допустимо", "возможно", "с вероятностью",
-            "возможность", "можно попробовать", "имеет шанс", "есть вероятность того",
-            "разрешено", "допускается выполнение",
-            "есть шанс того", "могло бы быть", "думаю"
-        ],
-        "Желательность": [
-            "хочу", "хотелось бы", "хотели", "желательно", "мечтаю", "стоит", "следовало бы",
-            "неплохо бы", "бы хорошо", "было бы здорово", "предпочтительно", "лучше бы",
-            "рекомендую", "целесообразно", "оптимально", "предпочтительнее", "желали"
-                                                                             "целесообразно сделать",
-            "желательно сделать", "рекомендовано", "желательно учитывать",
-            "лучше всего", "желательно соблюдать", "желаемо", "хотелось бы видеть",
-            "следовало бы учитывать", "желательно выполнять", "полезно бы", "неплохо бы сделать",
-            "хотелось бы иметь", "лучше", "предпочтительно выполнять", "желательно иметь",
-            "желательно учитывать при", "стоило бы", "было бы неплохо"
-        ]
-    }
-
-    modality_counts = {"Постановка вопроса": 0, "Обязанность": 0, "Возможность": 0, "Желательность": 0}
-    for category, words in modality_dict.items():
-        for w in words:
-            if w in text.lower():
-                modality_counts[category] += 1
-
-    max_value = max(modality_counts.values())
-    max_categories = [k for k, v in modality_counts.items() if v == max_value]
-
-    if len(max_categories) == 3:
-        return "Нейтральная"
-
-    elif len(max_categories) == 2:
-        return f"{max_categories[0]}/{max_categories[1]}"
-    else:
-        return max_categories[0]
-
-
-def files_in_directory(path1, select):
-    """
-    :param path1: Путь к директории
-    :param select:  Подстрока для получения конкретных имён файлов;
-    :return: Список абсолютных путей
-    """
-    all_txt = []
-    for root, dirs, files1 in os.walk(path1):
-        for file in files1:
-            # Получение полного пути к файлу
-            file_path1 = os.path.join(root, file)
-            if select in file_path1:
-                if '.txt' in file_path1:
-                    all_txt.append(file_path1)
-    return all_txt
-
-
-def download_data(x, verbose=False):
-    """
-    :param x: Список путей к файлам;
-    :param verbose: Параметр отображения;
-    :return: Возвращает список строк (тексты стенограмм);
-    """
-    data = []
-    if verbose:
-        for file in tqdm(x, desc="Загрузка данных"):
-            with open(file, encoding='cp1251') as f:
-                data.append(f.read())
-    else:
-        for file in x:
-            with open(file, encoding='cp1251') as f:
-                data.append(f.read())
-    return data
-
-
-def find_adj(actors: list, sent):
-    """ Функция дополняет актора дополнительным словом (прилагательным)
-    нужно дописать;
-    :param actors - список акторов;
-    :param sent - текущее предложение """
-
-    actor_tokens = []
-    used_tokens = []
-    actor_tokens_with_adj = []
-    new_actors = []
-    for actor in actors:
-        for token in sent.tokens:  # Выявляем токены-акторы
-            if token.text == actor and token.text not in used_tokens:
-                actor_tokens.append(token)
-                actor_tokens_with_adj.append(token)  # Добавляем исходный токен актора
-                used_tokens.append(token.text)
-                continue
-
-    dop_tokens, dop_tokens1, dop_tokens2, dop_tokens3 = [], [], [], []
-    for token in sent.tokens:
-        for actor_token in actor_tokens:
-            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
-                    token.head_id == actor_token.id and token.pos == "NUM") or (
-                    token.head_id == actor_token.id and token.pos == "NOUN"):
-                if token not in actor_tokens_with_adj:
-                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
-                    dop_tokens.append(token)
-
-    for token in sent.tokens:
-        for actor_token in dop_tokens:
-            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
-                    token.head_id == actor_token.id and token.pos == "NUM") or (
-                    token.head_id == actor_token.id and token.pos == "NOUN"):
-                if token not in actor_tokens_with_adj:
-                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
-                    dop_tokens1.append(token)
-
-    for token in sent.tokens:
-        for actor_token in dop_tokens1:
-            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
-                    token.head_id == actor_token.id and token.pos == "NUM") or (
-                    token.head_id == actor_token.id and token.pos == "NOUN"):
-                if token not in actor_tokens_with_adj:
-                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
-                    dop_tokens2.append(token)
-
-    for token in sent.tokens:
-        for actor_token in dop_tokens2:
-            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
-                    token.head_id == actor_token.id and token.pos == "NUM") or (
-                    token.head_id == actor_token.id and token.pos == "NOUN"):
-                if token not in actor_tokens_with_adj:
-                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
-                    dop_tokens3.append(token)
-
-    for token in sent.tokens:
-        for actor_token in dop_tokens3:
-            if (token.head_id == actor_token.id and token.pos == "ADJ") or (
-                    token.head_id == actor_token.id and token.pos == "NUM") or (
-                    token.head_id == actor_token.id and token.pos == "NOUN"):
-                if token not in actor_tokens_with_adj:
-                    actor_tokens_with_adj.append(token)  # Дополнительное прилагательное
-
-    actor_tokens_with_adj.sort(key=lambda t: tuple(map(int, t.id.split('_'))))
-    for act_token in actor_tokens_with_adj:
-        new_actors.append(act_token.text)
-    return new_actors
-
-
-def add_context(actors, actions, sent):
-    STOP_token_texts = [',', '.']
-    # Добавление контекста
-    # sent.tokens - все токены предложения, со всеми признаками
-    objects, action_descriptions, modality, tonality = [], [], [], []
-    objects_tokens = []
-    actors_with_adj = []
-    # получение тональности
-    if not actions:
-        tonality = analyze_tonality(sent.text)
-    else:
-        actions_str = ''
-        for act in actions:
-            actions_str = actions_str + ' ' + act
-        tonality = analyze_tonality(sent.text)  # actions_str
-
-    # получение модальности
-    modality = analyze_modality(sent.text)
-
-    used_tokens, action_tokens = [], []
-
-    underling_tokens_first_level, underling_tokens_second_level = [], []
-    underling_tokens_third_level = []
-
-    for token in sent.tokens:  # Выявляем токены сказуемые
-        for action in actions:
-            if token.text == action and token.id not in used_tokens:
-                action_tokens.append(token)
-                used_tokens.append(token.id)
-
-    # Выявляем зависимые от сказуемого токены
-    for token in sent.tokens:
-        for action_token in action_tokens:
-            if token.head_id == action_token.id:
-                if token.text not in STOP_token_texts:
-                    # Нашли зависимый от action токен, перебор вариантов для записи
-                    if token.rel == 'obj' or token.rel == 'iobj' or token.rel == 'obl' or token.rel == 'nmod':
-                        if token.pos != 'ADP' and token.pos != 'PRON' and token.pos != 'VERB':
-                            objects_tokens.append(token)
-                        # Для дальнейшего поиска записываем даже предлоги и т.д.
-                        underling_tokens_first_level.append(token)
-    # Уточняем
-    for token in sent.tokens:  # Выявляем зависимые от токенов сказуемого (первый уровень)
-        for first_level_token in underling_tokens_first_level:
-            if token.head_id == first_level_token.id:
-                if token.pos != 'ADP' and token.pos != 'PRON' and token.pos != 'VERB':  # 'ADP' - предлог, 'PRON' - указательное местоимение
-                    if token.text not in STOP_token_texts:
-                        objects_tokens.append(token)
-                        underling_tokens_second_level.append(token)
-
-    for token in sent.tokens:  # Выявляем зависимые от токенов сказуемого (второй уровень)
-        for second_level_token in underling_tokens_second_level:
-            if token.head_id == second_level_token.id:
-                if token.pos != 'ADP' and token.pos != 'PRON' and token.pos != 'VERB':
-                    if token.text not in STOP_token_texts:
-                        objects_tokens.append(token)
-                        underling_tokens_third_level.append(token)
-
-    for token in sent.tokens:  # Выявляем зависимые от токенов сказуемого (третий уровень)
-        for third_level_token in underling_tokens_third_level:
-            if token.head_id == third_level_token.id:
-                if token.pos != 'ADP' and token.pos != 'PRON' and token.pos != 'VERB':
-                    if token.text not in STOP_token_texts:
-                        objects_tokens.append(token)
-    # ...
-    objects_tokens.sort(key=lambda t: tuple(map(int, t.id.split('_'))))  # Сортировка токенов по месту в предложении
-    for obj_token in objects_tokens:
-        objects.append(obj_token.text)
-
-    # Добавление прилагательного (доп. слова) к актору
-    actors_with_adj = find_adj(actors, sent)
-
-    return objects, action_descriptions, modality, tonality, actors_with_adj
-
-
-def formalize_text(x: list, doc_paths: list, path_to_all_docs: str):
+def formalize_text(x: list, doc_paths: list,
+                   path_to_all_docs: str, path_to_files1: str,
+                   tokenizer, model):
     """
     Функция, которая ищет нарративные признаки
+    :param model: Модель, для получения тональности;
+    :param tokenizer: Токенайзер;
+    :param path_to_files1: Путь к файлам;
     :param x: список строк с текстом;
     :param doc_paths: список полных путей к документам;
     :param path_to_all_docs: строка, содержащая путь к директории с документами-предками (всеми документами)
@@ -436,16 +102,18 @@ def formalize_text(x: list, doc_paths: list, path_to_all_docs: str):
 
             # Ищем спикера, если нет в первом предложении, то открываем предыдущую стенограмму
             if sent_count == 1:
-                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs)
+                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs,
+                                                   path_to_files1)
                 # print(current_speaker1)
                 if current_speaker1 == '':
                     # print(current_speaker1)
                     current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count],
-                                                       path_to_all_docs, find_in_previous_doc=True)
+                                                       path_to_all_docs, path_to_files1, find_in_previous_doc=True)
                     # print(current_speaker1)
             else:
 
-                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs)
+                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs,
+                                                   path_to_files1)
             # Проверяем, нашли ли мы действительно нового спикера
             if current_speaker1 != '':
                 current_speaker = current_speaker1
@@ -496,27 +164,31 @@ def formalize_text(x: list, doc_paths: list, path_to_all_docs: str):
 
                     objects[narrative_num], action_descriptions[narrative_num], modality[narrative_num], tonality[
                         narrative_num], actors[narrative_num] = add_context(actors[narrative_num],
-                                                                            actions[narrative_num], sent_for_analysis)
+                                                                            actions[narrative_num], sent_for_analysis,
+                                                                            tokenizer, model)
 
                 elif n_token.rel == "parataxis" and n_token.pos != 'ADV':
                     # ПУТЬ №2
                     actors[narrative_num].append(n_token.text)
                     objects[narrative_num], action_descriptions[narrative_num], modality[narrative_num], tonality[
                         narrative_num], actors[narrative_num] = add_context(actors[narrative_num],
-                                                                            actions[narrative_num], sent_for_analysis)
+                                                                            actions[narrative_num], sent_for_analysis,
+                                                                            tokenizer, model)
 
                 elif n_token.rel == "nsubj" or n_token.rel == "nsubj:pass":
                     # ПУТЬ №3 БЕЗ ГЛАГОЛА
                     actors[narrative_num].append(n_token.text)
                     objects[narrative_num], action_descriptions[narrative_num], modality[narrative_num], tonality[
                         narrative_num], actors[narrative_num] = add_context(actors[narrative_num],
-                                                                            actions[narrative_num], sent_for_analysis)
+                                                                            actions[narrative_num], sent_for_analysis,
+                                                                            tokenizer, model)
 
                 elif n_token.id == n_token.head_id and n_token.pos == 'NOUN':
                     actors[narrative_num].append(n_token.text)
                     objects[narrative_num], action_descriptions[narrative_num], modality[narrative_num], tonality[
                         narrative_num], actors[narrative_num] = add_context(actors[narrative_num],
-                                                                            actions[narrative_num], sent_for_analysis)
+                                                                            actions[narrative_num], sent_for_analysis,
+                                                                            tokenizer, model)
 
                 else:
                     pass
@@ -544,49 +216,63 @@ def formalize_text(x: list, doc_paths: list, path_to_all_docs: str):
     return triads
 
 
-path_to_files = r'E:\Грант\Обучение ГосДума\Дирижизм'  # Путь к обрабатываемым файлам
-path_to_all_files = r'E:\Грант\Стенограммы структура оригиналы'  # Путь к файлам-предкам (или всем файлам)
-files = files_in_directory(path_to_files, '')  # Получаем все пути к файлам
+def process_batch(args):
+    """Функция выполняется в отдельном процессе"""
+    doc_texts, doc_paths, path_to_all_files, path_to_files, tokenizer, model, output_dir = args
 
-dataset = NarrativeDataset(files[:10])  # Создание датасета
-dataloader = DataLoader(dataset, shuffle=True, batch_size=5)  # Создание даталодера
-# Запись результатов в список results
-results = []
-for doc_texts, doc_paths in tqdm(dataloader, 'Формализация текстов'):
-    res = formalize_text(doc_texts, doc_paths, path_to_all_files)
-    results += res
+    try:
+        # Основная логика
+        res = formalize_text(doc_texts, doc_paths, path_to_all_files, path_to_files, tokenizer, model)
 
-# Запись в файл
-speakers_ind, actors_ind, actions_ind, objects_ind, action_descs, mode, ton, PER_ind, LOC_ind, ORG_ind, sent_ind = [], [], [], [], [], [], [], [], [], [], []
-all_params = [speakers_ind, actors_ind, actions_ind, objects_ind, mode, ton, PER_ind, LOC_ind, ORG_ind,
-              sent_ind]  # action_descs
-names = ['speakers', 'actors', 'actions', 'objects', 'modality', 'tonality',
-         'PER', "LOC", "ORG", 'sentence']  # 'action descriptions'
+        # Создание уникального имени файла
+        first_name = os.path.splitext(os.path.basename(doc_paths[0]))[0]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        out_name = f"Результат_{first_name}_{timestamp}.xlsx"
+        out_path = os.path.join(output_dir, out_name)
 
-for triad in results:
-    for num in range(len(triad['actors'])):
-        for idx, _ in enumerate(names):
-            try:
-                if _ in ['PER', "LOC", "ORG"]:
-                    all_params[idx].append(triad[_][0])
-                elif _ == 'sentence':
-                    all_params[idx].append(triad[_])
-                else:
-                    all_params[idx].append(triad[_][num])
-            except IndexError:
-                all_params[idx].append(['-'])
+        # Сохранение результата
+        writer(res, out_path)
 
-dataframe = pd.DataFrame({
-    'speakers': all_params[0],
-    'actors': all_params[1],
-    'actions': all_params[2],
-    'objects': all_params[3],
-    'modality': all_params[4],
-    'tonality': all_params[5],
-    'PER': all_params[6],
-    "LOC": all_params[7],
-    "ORG": all_params[8],
-    'sentence': all_params[9]
-})
+        return f"Готово: {out_name}"
 
-dataframe.to_excel(fr'E:\Downloads\Триады_нарративов_new2.xlsx', index=False)
+    except Exception as e:
+        return f"Ошибка при обработке {doc_paths[0]}: {e}"
+
+
+#
+if __name__ == "__main__":
+    # === параметры путей ===
+    path_to_files = r'E:\Грант\Обучение ГосДума\Дирижизм'
+    path_to_all_files = r'E:\Грант\Стенограммы структура оригиналы'
+    output_dir = r'E:\Грант\Формализация'
+    os.makedirs(output_dir, exist_ok=True)
+
+    # === инициализация моделей ===
+    MODEL = "cointegrated/rubert-tiny-sentiment-balanced"  # MODEL = "mxlcw/rubert-tiny2-russian-financial-sentiment"
+    tokenizer_1 = AutoTokenizer.from_pretrained(MODEL)
+    model_1 = AutoModelForSequenceClassification.from_pretrained(MODEL)
+
+    # === загрузка файлов ===
+    files = files_in_directory(path_to_files, '')  # твоя функция
+    dataset = NarrativeDataset(files[:30])
+    dataloader = DataLoader(dataset, shuffle=True, batch_size=3)
+
+    # === подготовка аргументов для multiprocessing ===
+    tasks = [
+        (doc_texts, doc_paths, path_to_all_files, path_to_files,
+         tokenizer_1, model_1, output_dir)
+        for doc_texts, doc_paths in dataloader
+    ]
+
+    # === запуск multiprocessing ===
+    num_workers = 8
+    print(f"Используется {num_workers} процессов")
+
+    with Pool(processes=num_workers) as pool:
+        results = list(tqdm(pool.imap(process_batch, tasks), total=len(tasks), desc="Формализация текстов"))
+
+    # === вывод итогов ===
+    for r in results:
+        print(r)
+
+    print("Все задачи завершены успешно.")
