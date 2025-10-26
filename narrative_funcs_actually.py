@@ -242,7 +242,7 @@ def process_batch(args):
 #
 if __name__ == "__main__":
     # === параметры путей ===
-    path_to_files = r'E:\Грант\Обучение ГосДума\Дирижизм'
+    path_to_files = r'E:\Грант\Обучение ГосДума\Особый путь'
     path_to_all_files = r'E:\Грант\Стенограммы структура оригиналы'
     output_dir = r'E:\Грант\Формализация'
     os.makedirs(output_dir, exist_ok=True)
@@ -254,7 +254,7 @@ if __name__ == "__main__":
 
     # === загрузка файлов ===
     files = files_in_directory(path_to_files, '')  # твоя функция
-    dataset = NarrativeDataset(files[:30])
+    dataset = NarrativeDataset(files)
     dataloader = DataLoader(dataset, shuffle=True, batch_size=3)
 
     # === подготовка аргументов для multiprocessing ===

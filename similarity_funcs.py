@@ -49,15 +49,44 @@ def get_embedding(all_texts, max_length=1500):
     return averages
 
 
-triad1 = ["доля"]
-triad2 = ["проект"]
+def make_example_tensor(example_triad: list):
+    """
+    Функция для создания тензора для образцового набора нарративных признаков
+    :param example_triad: список строк [актор1, действие1, объект1, актор2, действие2, объект2, ...]
+    :return: список torch тензоров
+    """
+    examples_vec_torch = []
+    example_vec = get_embedding(example_triad)
+    for idx in range(0, len(example_vec), 3):
+        role_example_vec = example_vec[idx + 1] + example_vec[idx + 2] - example_vec[idx]
+        role_example_vec = role_example_vec / np.linalg.norm(role_example_vec)
+        example_vec_torch = torch.tensor(role_example_vec)
+        examples_vec_torch.append(example_vec_torch)
+    return examples_vec_torch
 
-v1 = get_embedding(triad1)[0]
-v2 = get_embedding(triad2)[0]
 
-v1_t = torch.tensor(v1)
-v2_t = torch.tensor(v2)
-similarity = util.cos_sim(v1_t, v2_t)
+def similarity_economic_meaning(embeddings: list, sample_emb_torch: torch.tensor):
+    """
+    Функция определяет сходство "экономического смысла" между списком
+    нарративных элементов и идеальным образцом
+    :param sample_emb_torch: torch тензор для сравнения (образцовый);
+    :param embeddings: список векторов, в котором указаны актор, действие и объект действия;
+    :return: значение от 0 до 1, где 1 означает идеальное сходство
+    """
+    if len(embeddings) % 3 != 0:
+        raise ValueError("Количество элементов должно быть кратно 3 (актор, действие, объект)")
 
-print(similarity.item())
-
+    # Получаем вектора для списка [актор, действие, объект]
+    # embs = get_embedding(narrative_triad)
+    similarities = []
+    for idx in range(0, len(embeddings), 3):
+        # Формируем "ролевое" представление
+        nar_vec = embeddings[idx + 1] + embeddings[idx + 2] - embeddings[idx]  # Действие + Объект - Актор
+        # Нормализуем вектор
+        nar_vec = nar_vec / np.linalg.norm(nar_vec)
+        # Преобразуем в тензор
+        nar_vec_torch = torch.tensor(nar_vec)
+        # Считаем сходство
+        similarity = util.cos_sim(nar_vec_torch, sample_emb_torch)
+        similarities.append(similarity.item())
+    return similarities
