@@ -5,6 +5,46 @@ sys.path.append(r"E:\PycharmProjects\PARsing\grant")
 from tonality_and_mod import *
 
 
+def find_adj1(actors: list, sent):
+    """
+    ‘ункци€ дополн€ет акторов прилагательными, числительными и зависимыми существительными.
+
+    :param actors: список акторов (строк);
+    :param sent: предложение с токенами (объекты с атрибутами .text, .id, .head_id, .pos)
+    :return: список акторов с добавленными определени€ми
+    """
+    # ћножество допустимых POS
+    ALLOWED_POS = ["ADJ", "NUM", "NOUN"]
+
+    # »щем токены-акторы
+    actor_tokens = [
+        t for t in sent.tokens
+        if t.text in actors
+    ]
+
+    # —охран€ем найденные токены (чтобы избежать дублей)
+    visited = []
+    result_tokens = []
+
+    def expand_dependents(token):
+        """–екурсивно добавл€ем зависимые токены подход€щих POS."""
+        for child in sent.tokens:
+            if child.head_id == token.id and child.pos in ALLOWED_POS and child not in visited:
+                visited.append(child)
+                result_tokens.append(child)
+                expand_dependents(child)
+
+    # –екурсивно расшир€ем дл€ каждого актора
+    for token in actor_tokens:
+        expand_dependents(token)
+
+    # —ортируем токены по пор€дку по€влени€ (id вида '1_2' ? [1,2])
+    result_tokens.sort(key=lambda t: tuple(map(int, t.id.split('_'))))
+
+    # ¬озвращаем список текстов
+    return [t.text for t in result_tokens]
+
+
 def find_adj(actors: list, sent):
     """ ‘ункци€ дополн€ет актора дополнительным словом (прилагательным)
     нужно дописать;
@@ -78,18 +118,10 @@ def add_context(actors, actions, sent, tokenizer, model):
     STOP_token_texts = [',', '.']
     # ƒобавление контекста
     # sent.tokens - все токены предложени€, со всеми признаками
-    objects, action_descriptions, modality, tonality = [], [], [], []
+    objects, modality, tonality = [], [], []
     objects_tokens = []
-    actors_with_adj = []
     # получение тональности
-    if not actions:
-        tonality = analyze_tonality(sent.text, tokenizer, model)
-    else:
-        actions_str = ''
-        for act in actions:
-            actions_str = actions_str + ' ' + act
-        tonality = analyze_tonality(sent.text, tokenizer, model)  # actions_str
-
+    tonality = analyze_tonality(sent.text, tokenizer, model)
     # получение модальности
     modality = analyze_modality(sent.text)
 
@@ -146,4 +178,4 @@ def add_context(actors, actions, sent, tokenizer, model):
     # ƒобавление прилагательного (доп. слова) к актору
     actors_with_adj = find_adj(actors, sent)
 
-    return objects, action_descriptions, modality, tonality, actors_with_adj
+    return objects, modality, tonality, actors_with_adj

@@ -1,6 +1,7 @@
 # -*- coding: cp1251 -*-
-##
+
 import os
+import re
 from datetime import datetime
 from multiprocessing import Pool
 from tqdm import tqdm
@@ -16,6 +17,7 @@ from natasha import (
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from torch.utils.data import DataLoader
 import sys
+
 sys.path.append(r"E:\PycharmProjects\PARsing\grant")
 from custom_dataloading import NarrativeDataset
 from writer_func import writer
@@ -54,8 +56,12 @@ def formalize_text(x: list, doc_paths: list,
 
         # Спикер (актор)
         current_speaker = ''
-        sent_count = 0  # Счётчик, чтобы отследить первое предложение для поиска спикера
 
+        # Дата
+        date = re.search(r'(\d{1,2})\s+([а-яА-Я]+)\s+(\d{4})', doc_paths[index])
+        date = date.group(0)
+
+        sent_count = 0  # Счётчик, чтобы отследить первое предложение для поиска спикера
         for sent in doc.sents:
             sent_count += 1
             sent_for_analysis = sent  # Предложение для анализа
@@ -63,9 +69,8 @@ def formalize_text(x: list, doc_paths: list,
 
             # Словарь для записи триады нарратива
             triad = {'speakers': [], 'actors': [], 'actions': [], 'objects': [],
-                     'action descriptions': [], 'modality': [], 'tonality': [],
-                     'sentence': [],
-                     'PER': [], 'LOC': [], 'ORG': []}
+                     'modality': [], 'tonality': [], 'sentence': [], 'path': [],
+                     'date': [], 'connected sentences': []}
 
             # Список с исходными элементами поиска триады
             narrative_tokens = []
@@ -96,24 +101,22 @@ def formalize_text(x: list, doc_paths: list,
             # Конец поиска, у нас есть список с исходными токенами
             actors, actions = [[] for _ in range(len(narrative_tokens))], [[] for _ in range(len(narrative_tokens))]
             objects = [[] for _ in range(len(narrative_tokens))]
-            action_descriptions = [[] for _ in range(len(narrative_tokens))]
             modality = [[] for _ in range(len(narrative_tokens))]
             tonality = [[] for _ in range(len(narrative_tokens))]
+            date_list = [date for _ in range(len(narrative_tokens))]
 
             # Ищем спикера, если нет в первом предложении, то открываем предыдущую стенограмму
             if sent_count == 1:
                 current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs,
                                                    path_to_files1)
-                # print(current_speaker1)
                 if current_speaker1 == '':
-                    # print(current_speaker1)
                     current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count],
                                                        path_to_all_docs, path_to_files1, find_in_previous_doc=True)
-                    # print(current_speaker1)
+            # Поиск спикера после того как найден "начальный"
             else:
-
-                current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs,
-                                                   path_to_files1)
+                if 'Непроизнесенные выступления' not in doc_paths[doc_count]:
+                    current_speaker1 = extract_speaker(sent_for_analysis.text, doc_paths[doc_count], path_to_all_docs,
+                                                       path_to_files1)
             # Проверяем, нашли ли мы действительно нового спикера
             if current_speaker1 != '':
                 current_speaker = current_speaker1
@@ -162,7 +165,7 @@ def formalize_text(x: list, doc_paths: list,
                                     except KeyError:
                                         pass
 
-                    objects[narrative_num], action_descriptions[narrative_num], modality[narrative_num], tonality[
+                    objects[narrative_num], modality[narrative_num], tonality[
                         narrative_num], actors[narrative_num] = add_context(actors[narrative_num],
                                                                             actions[narrative_num], sent_for_analysis,
                                                                             tokenizer, model)
@@ -170,7 +173,7 @@ def formalize_text(x: list, doc_paths: list,
                 elif n_token.rel == "parataxis" and n_token.pos != 'ADV':
                     # ПУТЬ №2
                     actors[narrative_num].append(n_token.text)
-                    objects[narrative_num], action_descriptions[narrative_num], modality[narrative_num], tonality[
+                    objects[narrative_num], modality[narrative_num], tonality[
                         narrative_num], actors[narrative_num] = add_context(actors[narrative_num],
                                                                             actions[narrative_num], sent_for_analysis,
                                                                             tokenizer, model)
@@ -178,14 +181,14 @@ def formalize_text(x: list, doc_paths: list,
                 elif n_token.rel == "nsubj" or n_token.rel == "nsubj:pass":
                     # ПУТЬ №3 БЕЗ ГЛАГОЛА
                     actors[narrative_num].append(n_token.text)
-                    objects[narrative_num], action_descriptions[narrative_num], modality[narrative_num], tonality[
+                    objects[narrative_num], modality[narrative_num], tonality[
                         narrative_num], actors[narrative_num] = add_context(actors[narrative_num],
                                                                             actions[narrative_num], sent_for_analysis,
                                                                             tokenizer, model)
 
                 elif n_token.id == n_token.head_id and n_token.pos == 'NOUN':
                     actors[narrative_num].append(n_token.text)
-                    objects[narrative_num], action_descriptions[narrative_num], modality[narrative_num], tonality[
+                    objects[narrative_num], modality[narrative_num], tonality[
                         narrative_num], actors[narrative_num] = add_context(actors[narrative_num],
                                                                             actions[narrative_num], sent_for_analysis,
                                                                             tokenizer, model)
@@ -193,23 +196,22 @@ def formalize_text(x: list, doc_paths: list,
                 else:
                     pass
 
-            # Добавление NER
-            sent_doc = Doc(sent.text)  # Новый документ только для предложения
-            sent_doc.segment(segmenter)
-            ner_tagger = NewsNERTagger(emb)
-            sent_doc.tag_ner(ner_tagger)
-            for span in sent_doc.spans:
-                span.normalize(morph_vocab)
-                triad[span.type].append(span.normal)
-
             triad['speakers'] = speakers
             triad['actors'] = actors
             triad['actions'] = actions
             triad['objects'] = objects
-            triad['action descriptions'] = action_descriptions
             triad['modality'] = modality
             triad['tonality'] = tonality
             triad['sentence'] = sent.text
+            triad['path'] = doc_paths[index]
+            triad['date'] = date_list
+
+            start = max(0, sent_count - 3)
+            end = min(len(doc.sents) - 1, sent_count + 3)
+            con_sents = ''
+            for idx, con_sent in enumerate(doc.sents[start:end]):
+                con_sents = con_sents + " " + con_sent.text
+            triad['connected sentences'] = con_sents
 
             triads.append(triad)
 
@@ -242,20 +244,21 @@ def process_batch(args):
 #
 if __name__ == "__main__":
     # === параметры путей ===
-    path_to_files = r'E:\Грант\Обучение ГосДума\Особый путь'
+    path_to_files = r'E:\Грант\Экономические стенограммы'
     path_to_all_files = r'E:\Грант\Стенограммы структура оригиналы'
     output_dir = r'E:\Грант\Формализация'
     os.makedirs(output_dir, exist_ok=True)
 
     # === инициализация моделей ===
-    MODEL = "cointegrated/rubert-tiny-sentiment-balanced"  # MODEL = "mxlcw/rubert-tiny2-russian-financial-sentiment"
-    tokenizer_1 = AutoTokenizer.from_pretrained(MODEL)
-    model_1 = AutoModelForSequenceClassification.from_pretrained(MODEL)
+    # MODEL = "cointegrated/rubert-tiny-sentiment-balanced"
+    # tokenizer_1 = AutoTokenizer.from_pretrained(MODEL)
+    # model_1 = AutoModelForSequenceClassification.from_pretrained(MODEL)
+    MODEL, tokenizer_1, model_1 = '', '', ''
 
     # === загрузка файлов ===
-    files = files_in_directory(path_to_files, '')  # твоя функция
+    files = files_in_directory(path_to_files, '1997')
     dataset = NarrativeDataset(files)
-    dataloader = DataLoader(dataset, shuffle=True, batch_size=3)
+    dataloader = DataLoader(dataset, shuffle=True, batch_size=1)
 
     # === подготовка аргументов для multiprocessing ===
     tasks = [
@@ -265,7 +268,7 @@ if __name__ == "__main__":
     ]
 
     # === запуск multiprocessing ===
-    num_workers = 8
+    num_workers = 10
     print(f"Используется {num_workers} процессов")
 
     with Pool(processes=num_workers) as pool:

@@ -11,19 +11,14 @@ def writer(res: list, name: str):
     :return: создаёт файл Excel
     """
     # Запись в файл
-    speakers_ind, actors_ind, actions_ind, objects_ind, action_descs, mode, ton, PER_ind, LOC_ind, ORG_ind, sent_ind = [], [], [], [], [], [], [], [], [], [], []
-    all_params = [speakers_ind, actors_ind, actions_ind, objects_ind, mode, ton, PER_ind, LOC_ind, ORG_ind,
-                  sent_ind]  # action_descs
     names = ['speakers', 'actors', 'actions', 'objects', 'modality', 'tonality',
-             'PER', "LOC", "ORG", 'sentence']  # 'action descriptions'
-
+             'sentence', 'path', 'date', 'connected sentences']
+    all_params = [[] for _ in range(len(names))]
     for triad in res:
         for num in range(len(triad['actors'])):
             for idx, _ in enumerate(names):
                 try:
-                    if _ in ['PER', "LOC", "ORG"]:
-                        all_params[idx].append(triad[_][0])
-                    elif _ == 'sentence':
+                    if _ == 'sentence' or _ == 'path' or _ == 'connected sentences':
                         all_params[idx].append(triad[_])
                     else:
                         all_params[idx].append(triad[_][num])
@@ -35,13 +30,11 @@ def writer(res: list, name: str):
         'actors': all_params[1],
         'actions': all_params[2],
         'objects': all_params[3],
-        'modality': all_params[4],
-        'tonality': all_params[5],
-        'PER': all_params[6],
-        "LOC": all_params[7],
-        "ORG": all_params[8],
-        'sentence': all_params[9]
+        'sentence': all_params[6],
+        'path': all_params[7],
+        'date': all_params[8],
+        'connected sentences': all_params[9]
+
     })
 
     dataframe.to_excel(fr'{name}', index=False)
-    print(name)
