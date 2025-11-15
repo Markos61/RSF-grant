@@ -244,6 +244,7 @@ def process_batch(args):
 #
 if __name__ == "__main__":
     # === параметры путей ===
+    print('Начало формализации текстов...')
     path_to_files = r'E:\Грант\Экономические стенограммы'
     path_to_all_files = r'E:\Грант\Стенограммы структура оригиналы'
     output_dir = r'E:\Грант\Формализация'
@@ -256,7 +257,7 @@ if __name__ == "__main__":
     MODEL, tokenizer_1, model_1 = '', '', ''
 
     # === загрузка файлов ===
-    files = files_in_directory(path_to_files, '1997')
+    files = files_in_directory(path_to_files, '')
     dataset = NarrativeDataset(files)
     dataloader = DataLoader(dataset, shuffle=True, batch_size=1)
 
@@ -275,7 +276,7 @@ if __name__ == "__main__":
         results = list(tqdm(pool.imap(process_batch, tasks), total=len(tasks), desc="Формализация текстов"))
 
     # === вывод итогов ===
-    for r in results:
-        print(r)
+    # for r in results:
+    #   print(r)
 
     print("Все задачи завершены успешно.")

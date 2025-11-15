@@ -64,8 +64,8 @@ def get_embedding(all_texts, max_length=1500, verbose=True):
 
 
 def get_example_narratives():
-    narratives = [
-        "государство", "разрешает", "рыночную экономику",
+    narratives1 = [
+        "государство разрешает рыночную экономику",
         "государство", "разрешает", "свободные цены",
         "государство", "дерегулирует", "экономику",
         "государство", "осуществляет приватизацию", "убыточных предприятий государственного сектора",
@@ -105,6 +105,49 @@ def get_example_narratives():
         "государство", "не вмешивается и проигрывает", "экономика",
         "государство", "сохраняет", "управление экономикой"
     ]
+
+    narratives = [
+        "государство разрешает рыночную экономику",
+        "государство разрешает свободные цены",
+        "государство дерегулирует экономику",
+        "государство осуществляет приватизацию убыточных предприятий государственного сектора",
+        "государство не вмешивается в рынки",
+        "рынки способствуют формированию свободных цен",
+        "Частный собственник конкурирует экономически эффективно",
+        "государство ограничивает деятельность государство",
+        "государство защищает права собственности",
+        "государство минимизирует дефицит бюджета",
+        "государство снижает расходы на государственное управление, оборону, субсидирование",
+        "государство повышает расходы на здравоохранение, образование и инфраструктуру",
+        "государство расширяет налоговую базу",
+        "государство снижает предельные налоговые ставки",
+        "рынки способствуют формированию процентных ставок",
+        "государство не вмешивается в формирование процентных ставок",
+        "государство поддерживает на низком уровне обменный курс национальной валюты",
+        "государство поддерживает единство обменного курса национальной валюты",
+        "государство отменяет ограничения экспорта и импорта",
+        "государство отменяет ограничения иностранных инвестиций",
+        "государство приватизирует государственные предприятия",
+        "государство отменяет ограничения конкуренции",
+        "государство защищает права собственности",
+        "государство приватизирует государственные предприятия",
+        "центральный банк осуществляет денежную эмиссию с постоянным низким темпом денежной массы",
+        "фирмы производят товары",
+        "государство не вмешивается в выбор фирмами производимых товаров",
+        "государство управляет для стимулирования развития государственных предприятий",
+        "государство концентрирует ресурсы на приоритетных направлениях",
+        "государство реализует национальные проекты для экономического роста",
+        "государство поддерживает инновационные предприятия",
+        "цивилизация развивается экономическая система",
+        "государство помогает расти эффективным институтам",
+        "государство прикрывается экологической необходимостью",
+        "государство управляет экономикой",
+        "государство управляет при помощи науки экономикой",
+        "государство должно вмешиваться в экономику",
+        "государство не вмешивается и проигрывает в экономике",
+        "государство сохраняет управление экономикой"
+    ]
+
     return narratives
 
 
@@ -115,15 +158,8 @@ def make_example_tensor(example_triad: list):
     :return: список torch тензоров
     """
 
-    example_vec = get_embedding(example_triad)
-    role_vecs = []
+    role_vecs = get_embedding(example_triad)
 
-    for idx in range(0, len(example_vec), 3):
-        role_example_vec = example_vec[idx + 1] + example_vec[idx + 2] - example_vec[idx]
-        role_example_vec = role_example_vec / np.linalg.norm(role_example_vec)
-        role_vecs.append(role_example_vec)
-
-    # Преобразуем список numpy-векторов в один torch-тензор
     example_tensor = torch.tensor(np.stack(role_vecs), dtype=torch.float32)
     return example_tensor
 
@@ -136,13 +172,34 @@ def similarity_economic_meaning(embeddings: list, sample_emb_torch: torch.tensor
     :param embeddings: список векторов, в котором указаны актор, действие и объект действия;
     :return: значение от 0 до 1, где 1 означает идеальное сходство
     """
-    if len(embeddings) % 3 != 0:
-        raise ValueError("Количество элементов должно быть кратно 3 (актор, действие, объект)")
+
+    similarities = []
+    for idx, emb in enumerate(embeddings):
+        # Преобразуем в тензор
+        nar_vec_torch = torch.tensor(emb)
+        # Считаем сходство
+        similarity = util.cos_sim(nar_vec_torch, sample_emb_torch)
+        # similarities.append(similarity.item())
+        similarities.append(similarity.squeeze().tolist())
+
+    return similarities
+
+
+def similarity_economic_meaning_addition(embeddings: list, sample_emb_torch: torch.tensor):
+    """
+    Функция определяет сходство "экономического смысла" между списком
+    нарративных элементов и идеальными образцами
+    :param sample_emb_torch: torch тензоры для сравнения (образцовые);
+    :param embeddings: список векторов, в котором указаны актор, действие и объект действия;
+    :return: значение от 0 до 1, где 1 означает идеальное сходство
+    """
 
     similarities = []
     for idx in range(0, len(embeddings), 3):
         # Формируем "ролевое" представление
-        nar_vec = embeddings[idx + 1] + embeddings[idx + 2] - embeddings[idx]  # Действие + Объект - Актор
+        # nar_vec = embeddings[idx + 1] + embeddings[idx + 2] - embeddings[idx]  # Действие + Объект - Актор
+        nar_vec = embeddings[idx] + embeddings[idx + 1] + embeddings[idx + 2]  # Актор + Действие + Объект
+
         # Нормализуем вектор
         nar_vec = nar_vec / np.linalg.norm(nar_vec)
         # Преобразуем в тензор
@@ -153,3 +210,24 @@ def similarity_economic_meaning(embeddings: list, sample_emb_torch: torch.tensor
         similarities.append(similarity.squeeze().tolist())
 
     return similarities
+
+
+def make_example_tensor_addition(example_triad: list):
+    """
+    Функция для создания тензора для образцового набора нарративных признаков
+    :param example_triad: список строк [актор1, действие1, объект1, актор2, действие2, объект2, ...]
+    :return: список torch тензоров
+    """
+
+    example_vec = get_embedding(example_triad)
+    role_vecs = []
+
+    for idx in range(0, len(example_vec), 3):
+        # role_example_vec = example_vec[idx + 1] + example_vec[idx + 2] - example_vec[idx]
+        role_example_vec = example_vec[idx] + example_vec[idx + 1] + example_vec[idx + 2]
+        role_example_vec = role_example_vec / np.linalg.norm(role_example_vec)
+        role_vecs.append(role_example_vec)
+
+    # Преобразуем список numpy-векторов в один torch-тензор
+    example_tensor = torch.tensor(np.stack(role_vecs), dtype=torch.float32)
+    return example_tensor

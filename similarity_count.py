@@ -22,10 +22,21 @@ def process_file(args):
     try:
         df = pd.read_excel(file, engine='openpyxl')
         nar_list = []
+
+        def clean(x):
+            x = x.replace('[', '').replace(']', '').replace("'", '').replace(",", '').strip()
+            return "" if x == "-" else x
+
         for _, row in df[['actors', 'actions', 'objects']].fillna('-').replace('[]', '-').iterrows():
-            nar_list.extend([row['actors'].replace('[', '').replace(']', '').replace("'", '').replace(",", ''),
-                             row['actions'].replace('[', '').replace(']', '').replace("'", '').replace(",", ''),
-                             row['objects'].replace('[', '').replace(']', '').replace("'", '').replace(",", '')])
+            # nar_list.extend([row['actors'].replace('[', '').replace(']', '').replace("'", '').replace(",", ''),
+            #                 row['actions'].replace('[', '').replace(']', '').replace("'", '').replace(",", ''),
+            #                 row['objects'].replace('[', '').replace(']', '').replace("'", '').replace(",", '')])
+            # actor = row['actors'].replace('[', '').replace(']', '').replace("'", '').replace(",", '')
+            # action = row['actions'].replace('[', '').replace(']', '').replace("'", '').replace(",", '')
+            # obj = row['objects'].replace('[', '').replace(']', '').replace("'", '').replace(",", '')
+            actor, action, obj = clean(row['actors']), clean(row['actions']), clean(row['objects'])
+            narrative = " ".join(p for p in [actor, action, obj] if p)
+            nar_list.append(narrative)
 
         embs = get_embedding(nar_list, verbose=False)
         res = similarity_economic_meaning(embs, examples)
@@ -39,7 +50,7 @@ def process_file(args):
 
 
 if __name__ == '__main__':
-    files = xlsx_in_directory(r'E:\Грант\Формализация', '')
+    files = xlsx_in_directory(r'E:\Грант\Формализация', '1997')
     # Нарративы-примеры
     narratives = get_example_narratives()
     # Тензоры нарративов-примеров
@@ -47,8 +58,8 @@ if __name__ == '__main__':
 
     tasks = [file for file in files]
 
-    with Pool(processes=6, initializer=init_worker, initargs=(examples,)) as pool:
+    with Pool(processes=8, initializer=init_worker, initargs=(examples,)) as pool:
         results = list(tqdm(pool.imap_unordered(process_file, tasks), total=len(tasks), desc="Подсчёт схожести"))
         # Печать статуса файлов
-        for file_path, status in results:
-            print(file_path, status)
+        # for file_path, status in results:
+        #    print(file_path, status)
