@@ -50,7 +50,7 @@ def process_file(args):
 
 
 if __name__ == '__main__':
-    files = xlsx_in_directory(r'E:\Грант\Формализация', '1997')
+    files = xlsx_in_directory(r'E:\Грант\Формализация', '')
     # Нарративы-примеры
     narratives = get_example_narratives()
     # Тензоры нарративов-примеров
